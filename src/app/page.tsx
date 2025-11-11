@@ -31,6 +31,7 @@ export default function Home() {
         supportedChains: [hyperliquidEvmTestnet],
         loginMethods: ["google", "email", "wallet"],
         embeddedWallets: {
+          showWalletUIs: false,
           ethereum: { createOnLogin: "users-without-wallets" },
         },
       }}
