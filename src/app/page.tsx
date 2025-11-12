@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   toViemAccount,
   PrivyProvider,
@@ -8,19 +9,8 @@ import {
 } from "@privy-io/react-auth";
 import { hyperliquidEvmTestnet } from "viem/chains";
 import * as hl from "@nktkas/hyperliquid";
-import BigNumber from "bignumber.js";
 
 const privy_app_id = "cmgziwlwt04irl20c68twt5d9";
-
-function formatPrice(price: BigNumber, szDecimals: number): string {
-  const decimals = Math.max(0, szDecimals);
-  return price.toFixed(decimals, BigNumber.ROUND_DOWN);
-}
-
-function formatSize(size: BigNumber, szDecimals: number): string {
-  const decimals = Math.max(0, szDecimals);
-  return size.toFixed(decimals, BigNumber.ROUND_DOWN);
-}
 
 export default function Home() {
   return (
@@ -32,7 +22,7 @@ export default function Home() {
         loginMethods: ["google", "email", "wallet"],
         embeddedWallets: {
           showWalletUIs: false,
-          ethereum: { createOnLogin: "users-without-wallets" },
+          ethereum: { createOnLogin: "all-users" },
         },
       }}
     >
@@ -44,82 +34,130 @@ export default function Home() {
 function PlaceOrder() {
   const { ready, authenticated, login, logout, user } = usePrivy();
   const { wallets } = useWallets();
+  const [isPlacingOrder, setIsPlacingOrder] = useState(false);
 
   const wallet = wallets[0];
 
-  const placeOrder = async () => {
-    try {
-      if (!wallet) return;
+  console.log(wallets);
 
-      const viemAccount = await toViemAccount({ wallet });
+  const getHLClient = async () => {
+    const transport = new hl.HttpTransport({ isTestnet: true });
+    const hlInfoClient = new hl.InfoClient({ transport });
 
-      // Create Hyperliquid account
-      const transport = new hl.HttpTransport({ isTestnet: true });
-      const client = new hl.ExchangeClient({
-        transport,
-        wallet: viemAccount,
+    const eoaWallet = wallets.find((w) => w.walletClientType != "privy");
+    const embeddedWallet = wallets.find((w) => w.walletClientType == "privy");
+
+    if (eoaWallet && embeddedWallet) {
+      console.log("In eoa and embedded wallet system");
+      await eoaWallet.switchChain(hyperliquidEvmTestnet.id);
+
+      const eoaViemAccount = await toViemAccount({ wallet: eoaWallet });
+      const embeddedViemAccount = await toViemAccount({
+        wallet: embeddedWallet,
       });
-      const infoClient = new hl.InfoClient({ transport });
+
+      console.log("eoaViemAccount", eoaViemAccount);
+      console.log("embeddedViemAccount", embeddedViemAccount);
+
+      const eoaExchangeClient = new hl.ExchangeClient({
+        wallet: eoaViemAccount,
+        transport,
+      });
+
+      console.log("Approving agents");
+
+      // register the embedded viem account as the agent wallet
+      await eoaExchangeClient.approveAgent({
+        agentAddress: embeddedWallet.address as `0x${string}`,
+        agentName: "Privy Agent",
+      });
+
+      console.log("approved");
+
+      // use the embedded account to submit transactions
+      const hlClient = new hl.ExchangeClient({
+        wallet: embeddedViemAccount,
+        transport,
+      });
+
+      return { hlClient, hlInfoClient };
+    } else if (embeddedWallet) {
+      console.log("embedded wallet system");
+      const embeddedViemAccount = await toViemAccount({
+        wallet: embeddedWallet,
+      });
+      const hlClient = new hl.ExchangeClient({
+        wallet: embeddedViemAccount,
+        transport,
+      });
+      return { hlClient, hlInfoClient };
+    }
+  };
+
+  const placeOrder = async () => {
+    if (isPlacingOrder) {
+      console.log("Order already in progress...");
+      return;
+    }
+
+    try {
+      setIsPlacingOrder(true);
+
+      if (!wallet) {
+        console.error("No wallet available");
+        return;
+      }
+
+      const hlClients = await getHLClient();
+
+      if (!hlClients) {
+        throw new Error("Failed to initialize clients");
+      }
+
+      const { hlClient, hlInfoClient } = hlClients;
+
+      console.log("hl client", hlClient);
 
       // pre transfer check
-      const preTransferCheck = await infoClient.preTransferCheck({
+      const preTransferCheck = await hlInfoClient.preTransferCheck({
         user: wallet.address,
         source: wallet.address,
       });
 
       console.log(preTransferCheck);
 
-      // Get available assets
-      const metaAndCtx = await infoClient.metaAndAssetCtxs();
-      const meta = metaAndCtx[0];
-      const ctx = metaAndCtx[1];
+      // Place a triggered market order (p must be "0" for market orders)
+      // const orderResponse = await hlClient.order({
+      //   grouping: "na",
+      //   orders: [
+      //     {
+      //       a: 3,
+      //       b: true,
+      //       p: "102210",
+      //       r: false,
+      //       s: "0.0001",
+      //       t: { limit: { tif: "Gtc" } },
+      //     },
+      //   ],
+      // });
 
-      // Find the asset index for BTC
-      const btcIndex = meta.universe.findIndex(
-        (asset: { name: string }) => asset.name === "BTC"
-      );
-      const universe = meta.universe[btcIndex];
-      const btcContext = ctx[btcIndex];
-
-      console.log("Universe:", universe);
-      console.log("BTC Context:", btcContext);
-
-      const price = formatPrice(
-        new BigNumber(btcContext.markPx).times(1.01),
-        5 // Standard price decimals for BTC
-      );
-      const triggerPrice = formatPrice(
-        new BigNumber(btcContext.markPx).times(0.99),
-        5 // Standard price decimals for BTC
-      );
-      const size = formatSize(
-        new BigNumber(15).div(btcContext.markPx),
-        universe.szDecimals
-      );
-
-      // Place a market order
-      const orderResponse = await client.order({
-        orders: [
-          {
-            a: btcIndex, // Asset index
-            b: true, // Buy order
-            s: size, // Size
-            r: false, // Not reduce-only
-            p: price, // Price (0 for market order)
-            t: {
-              trigger: { isMarket: true, tpsl: "tp", triggerPx: triggerPrice },
-            }, // Market order
-          },
-        ],
-        grouping: "na", // No grouping
-      });
-      console.log("Order placed:", orderResponse);
+      // console.log("Order placed:", orderResponse);
 
       // Check open positions
-      const userState = await infoClient.clearinghouseState({ user: address });
+      const userState = await hlInfoClient.clearinghouseState({
+        user: wallet.address,
+      });
       console.log("Account state:", userState);
     } catch (error) {
       console.error("Error placing order:", error);
+      // Log more details about the error
+      if (error instanceof Error) {
+        console.error("Error name:", error.name);
+        console.error("Error message:", error.message);
+        console.error("Error stack:", error.stack);
+      }
+    } finally {
+      setIsPlacingOrder(false);
     }
   };
 
@@ -152,9 +190,14 @@ function PlaceOrder() {
         <div className="text-sm text-gray-600 mb-2">{address}</div>
         <button
           onClick={placeOrder}
-          className="px-8 py-4 bg-blue-600 text-white text-lg rounded-lg hover:bg-blue-700 transition-colors"
+          disabled={isPlacingOrder}
+          className={`px-8 py-4 text-white text-lg rounded-lg transition-colors ${
+            isPlacingOrder
+              ? "bg-gray-400 cursor-not-allowed"
+              : "bg-blue-600 hover:bg-blue-700"
+          }`}
         >
-          Place Order
+          {isPlacingOrder ? "Placing Order..." : "Place Order"}
         </button>
         <button
           onClick={logout}
