@@ -49,7 +49,6 @@ function PlaceOrder() {
 
     if (eoaWallet && embeddedWallet) {
       console.log("In eoa and embedded wallet system");
-      await eoaWallet.switchChain(hyperliquidEvmTestnet.id);
 
       const eoaViemAccount = await toViemAccount({ wallet: eoaWallet });
       const embeddedViemAccount = await toViemAccount({
