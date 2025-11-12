@@ -48,72 +48,79 @@ function PlaceOrder() {
   const wallet = wallets[0];
 
   const placeOrder = async () => {
-    if (!wallet) return;
+    try {
+      if (!wallet) return;
 
-    const viemAccount = await toViemAccount({ wallet });
+      const viemAccount = await toViemAccount({ wallet });
 
-    // Create Hyperliquid account
-    const transport = new hl.HttpTransport({ isTestnet: true });
-    const client = new hl.ExchangeClient({
-      transport,
-      wallet: viemAccount,
-    });
-    const infoClient = new hl.InfoClient({ transport });
+      // Create Hyperliquid account
+      const transport = new hl.HttpTransport({ isTestnet: true });
+      const client = new hl.ExchangeClient({
+        transport,
+        wallet: viemAccount,
+      });
+      const infoClient = new hl.InfoClient({ transport });
 
-    // pre transfer check
-    const preTransferCheck = await infoClient.preTransferCheck({
-      user: wallet.address,
-      source: wallet.address,
-    });
+      // pre transfer check
+      const preTransferCheck = await infoClient.preTransferCheck({
+        user: wallet.address,
+        source: wallet.address,
+      });
 
-    console.log(preTransferCheck);
+      console.log(preTransferCheck);
 
-    // Get available assets
-    const metaAndCtx = await infoClient.metaAndAssetCtxs();
-    const meta = metaAndCtx[0];
-    const ctx = metaAndCtx[1];
+      // Get available assets
+      const metaAndCtx = await infoClient.metaAndAssetCtxs();
+      const meta = metaAndCtx[0];
+      const ctx = metaAndCtx[1];
 
-    // Find the asset index for BTC
-    const btcIndex = meta.universe.findIndex(
-      (asset: { name: string }) => asset.name === "BTC"
-    );
-    const universe = meta.universe[btcIndex];
-    const btcContext = ctx[btcIndex];
+      // Find the asset index for BTC
+      const btcIndex = meta.universe.findIndex(
+        (asset: { name: string }) => asset.name === "BTC"
+      );
+      const universe = meta.universe[btcIndex];
+      const btcContext = ctx[btcIndex];
 
-    const price = formatPrice(
-      new BigNumber(btcContext.markPx).times(1.01),
-      universe.szDecimals
-    );
-    const triggerPrice = formatPrice(
-      new BigNumber(btcContext.markPx).times(0.99),
-      universe.szDecimals
-    );
-    const size = formatSize(
-      new BigNumber(15).div(btcContext.markPx),
-      universe.szDecimals
-    );
+      console.log("Universe:", universe);
+      console.log("BTC Context:", btcContext);
 
-    // Place a market order
-    const orderResponse = await client.order({
-      orders: [
-        {
-          a: btcIndex, // Asset index
-          b: true, // Buy order
-          s: size, // Size
-          r: false, // Not reduce-only
-          p: price, // Price (0 for market order)
-          t: {
-            trigger: { isMarket: true, tpsl: "tp", triggerPx: triggerPrice },
-          }, // Market order
-        },
-      ],
-      grouping: "na", // No grouping
-    });
-    console.log("Order placed:", orderResponse);
+      const price = formatPrice(
+        new BigNumber(btcContext.markPx).times(1.01),
+        5 // Standard price decimals for BTC
+      );
+      const triggerPrice = formatPrice(
+        new BigNumber(btcContext.markPx).times(0.99),
+        5 // Standard price decimals for BTC
+      );
+      const size = formatSize(
+        new BigNumber(15).div(btcContext.markPx),
+        universe.szDecimals
+      );
 
-    // Check open positions
-    const userState = await infoClient.clearinghouseState({ user: address });
-    console.log("Account state:", userState);
+      // Place a market order
+      const orderResponse = await client.order({
+        orders: [
+          {
+            a: btcIndex, // Asset index
+            b: true, // Buy order
+            s: size, // Size
+            r: false, // Not reduce-only
+            p: price, // Price (0 for market order)
+            t: {
+              trigger: { isMarket: true, tpsl: "tp", triggerPx: triggerPrice },
+            }, // Market order
+          },
+        ],
+        grouping: "na", // No grouping
+      });
+      console.log("Order placed:", orderResponse);
+
+      // Check open positions
+      const userState = await infoClient.clearinghouseState({ user: address });
+      console.log("Account state:", userState);
+    } catch (error) {
+      console.error("Error placing order:", error);
+    }
   };
 
   if (!ready) {
