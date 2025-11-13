@@ -126,21 +126,21 @@ function PlaceOrder() {
       console.log(preTransferCheck);
 
       // Place a triggered market order (p must be "0" for market orders)
-      // const orderResponse = await hlClient.order({
-      //   grouping: "na",
-      //   orders: [
-      //     {
-      //       a: 3,
-      //       b: true,
-      //       p: "102210",
-      //       r: false,
-      //       s: "0.0001",
-      //       t: { limit: { tif: "Gtc" } },
-      //     },
-      //   ],
-      // });
+      const orderResponse = await hlClient.order({
+        grouping: "na",
+        orders: [
+          {
+            a: 3,
+            b: true,
+            p: "102210",
+            r: false,
+            s: "0.0001",
+            t: { limit: { tif: "Gtc" } },
+          },
+        ],
+      });
 
-      // console.log("Order placed:", orderResponse);
+      console.log("Order placed:", orderResponse);
 
       // Check open positions
       const userState = await hlInfoClient.clearinghouseState({
